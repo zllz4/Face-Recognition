@@ -37,7 +37,7 @@ python main.py
 
 You can change the `config.py` file according to your situation.
 
-The `FaceReg` class in `face_reg.py` do the main function, you can use it as follows
+The `FaceReg` class in `face_reg.py` does the main function, you can use it as follows
 
 ```python
 # create a instance of the config class
