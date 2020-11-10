@@ -28,8 +28,6 @@ The downloaded dataset are saved in `.bin` files and you can use `load_bin.py` i
 
 ## Usage
 
-**It is not recommanded to use this repo due to the messy codes.**
-
 ```shell
 python -m visdom.server
 python main.py
