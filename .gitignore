@@ -1,0 +1,10 @@
+*.pyc
+*.txt
+tmp
+megaface/devkit
+*.jpg
+*.json
+megaface/megaface_
+megaface/results
+!megaface/*.txt
+probelist
