@@ -160,15 +160,15 @@ class Config(object):
         # print()
         self._print_title("dataset")
         # print("dataset "+"-"*15)
-        image_list, index_name_map = dataset.list_dataset(self.config.train.dataset.path, f"tmp/{self.config.global_.result_dir}/webface.txt")
-        train_dataset = dataset.Dataset(image_list, index_name_map_path=index_name_map, transform=self.config.train.transform)
+        image_list, class_name_map = dataset.list_all_image(self.config.train.dataset.path, f"tmp/{self.config.global_.result_dir}/webface.txt")
+        train_dataset = dataset.Dataset(image_list, class_name_path=class_name_map, transform=self.config.train.transform)
         train_dataset_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.config.train.batch_size, shuffle=True)
         print(f"train_dataset: {train_dataset}")
         print(f"image_list file path: {image_list}")
-        print(f"index_name_map file path: {index_name_map}")
+        print(f"class_name_map file path: {class_name_map}")
         self.config.train.dataset = train_dataset
         self.config.train.loader = train_dataset_loader
-        self.delete_list.extend([image_list, index_name_map])
+        self.delete_list.extend([image_list, class_name_map])
 
         test_dataset_dict = edict()
         test_loader_dict = edict()
