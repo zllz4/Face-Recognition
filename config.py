@@ -19,9 +19,8 @@ class Config(object):
         # global
         config.global_ = edict()
         config.global_.name = "default" # config name, also visdom env name
-        config.global_.gpu = "0"
-        # config.global_.use_metric_learning_loss = False
-        config.global_.result_dir = datetime.now().strftime("%m_%d_%H_%M_%S")
+        config.global_.gpu = "0" # gpu you use
+        config.global_.result_dir = datetime.now().strftime("%m_%d_%H_%M_%S") # tmp result dir
         config.global_.auto_clear = True # auto clear generate file
         config.global_.device = None # to be generated
 
@@ -42,7 +41,7 @@ class Config(object):
                 edict({"stage2": {"lr":1e-2, "epoch":10, "test":True, "log_interval":10}}),
                 edict({"stage3": {"lr":1e-3, "epoch":10, "test":True, "log_interval":10}})
             ]
-        config.train.batch_size = 64
+        config.train.batch_size = 100
         config.train.transform = edict()
         config.train.transform.random_horizontal_flip = True
         config.train.transform.normalize = True
@@ -52,7 +51,7 @@ class Config(object):
 
         # test
         config.test = edict()
-        config.test.batch_size = 64 # currently useless
+        config.test.batch_size = 100
         config.test.dataset = [
             edict(name="lfw", path="H:/dataset/face/test/lfw/test_pair.txt"),
             edict(name="cplfw", path="H:/dataset/face/test/cplfw/test_pair.txt"),
@@ -83,17 +82,9 @@ class Config(object):
         print("-"*35)
 
     def display(self):
-        # print("="*75)
-        # print(f"{'CONFIG:'+self.config.global_.name:^75}")
-        # print("="*75)
-        # print("-"*100)
         print("=> display config")
         
         for top_key in self.config.keys():
-            # print("="*75)
-            # print()
-            # print(f"{top_key.upper():^35}")
-            # print("-"*35)
             self._print_title(top_key)
             for key in self.config[top_key].keys():
                 if type(self.config[top_key][key]) == list and type(self.config[top_key][key][0]) == edict:
@@ -107,27 +98,26 @@ class Config(object):
     def generate(self):
         print("=> generate config")
         
-        self._print_title("global")
-        # print("global "+"-"*15)
         self.delete_list = []
 
+        # global
+        self._print_title("global")
+        # create model save dir
         if not os.path.isdir(self.config.model.save_dir):
             os.makedirs(self.config.model.save_dir)
+        # save config
         with open(os.path.join(self.config.model.save_dir, "config.txt"), "w") as f:
             json.dump(self.config, f, indent=2)
         print("config saved in " + os.path.join(self.config.model.save_dir, "config.txt"))
-        # assert not os.listdir(self.config.model.save_dir), f"{self.config.model.save_dir} is not empty!"
-
+        # create result dir
         if not os.path.isdir(os.path.join("tmp",self.config.global_.result_dir)):
             os.makedirs(os.path.join("tmp",self.config.global_.result_dir))
         assert not os.listdir(os.path.join("tmp",self.config.global_.result_dir)), f"{os.path.join('tmp',self.config.global_.result_dir)} is not empty!"
 
-        # print()
+        # gpu
         self._print_title("gpu")
-        # print("gpu "+"-"*15)
         os.environ['CUDA_VISIBLE_DEVICES'] = self.config.global_.gpu
         print("Use", torch.cuda.device_count(), "GPUs!")
-
         if torch.cuda.is_available():
             self.config.global_.device = "cuda"
             cudnn.benchmark = True
@@ -136,9 +126,9 @@ class Config(object):
             self.config.global_.device = "cpu"
             print("cuda not available, set config.global_.device to cpu")
         
-        # print()
+        # transform
         self._print_title("transform")
-        # print("transform "+"-"*15)
+        # train
         train_transform_list = [transforms.Resize(self.config.model.input_size[1:])]
         if self.config.train.transform['random_horizontal_flip']:
             train_transform_list.append(transforms.RandomHorizontalFlip())
@@ -147,7 +137,7 @@ class Config(object):
             train_transform_list.append(transforms.Normalize(mean=[0.5], std=[0.5]))
         train_transform = transforms.Compose(train_transform_list)
         print(f"train_transform:\n{train_transform}")
-
+        # test
         test_transform_list = [transforms.Resize(self.config.model.input_size[1:])]
         test_transform_list.extend([transforms.Grayscale(),transforms.ToTensor()])
         if self.config.train.transform['normalize']:
@@ -157,9 +147,9 @@ class Config(object):
         self.config.train.transform = train_transform
         self.config.test.transform = test_transform
 
-        # print()
+        # dataset
         self._print_title("dataset")
-        # print("dataset "+"-"*15)
+        # train
         image_list, class_name_map = dataset.list_all_image(self.config.train.dataset.path, f"tmp/{self.config.global_.result_dir}/webface.txt")
         train_dataset = dataset.Dataset(image_list, class_name_path=class_name_map, transform=self.config.train.transform)
         train_dataset_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.config.train.batch_size, shuffle=True)
@@ -169,7 +159,7 @@ class Config(object):
         self.config.train.dataset = train_dataset
         self.config.train.loader = train_dataset_loader
         self.delete_list.extend([image_list, class_name_map])
-
+        # test
         test_dataset_dict = edict()
         test_loader_dict = edict()
         for test_pair in self.config.test.dataset:
@@ -181,10 +171,9 @@ class Config(object):
         self.config.test.dataset = test_dataset_dict
         self.config.test.loader = test_loader_dict
 
-        # print()
+        # model
         self._print_title("model")
-        # print("model "+"-"*15)
-
+        # backbone
         if self.config.model.backbone == "resnet_18_ir":
             self.config.model.backbone = resnet_ir.ResNet18_IR(self.config.model.input_size, self.config.model.feature_dim)
         elif self.config.model.backbone == "resnet_34_ir":
@@ -196,12 +185,10 @@ class Config(object):
         self.config.model.backbone.to(self.config.global_.device)
         if self.config.global_.device == "cuda":
             self.config.model.backbone = torch.nn.DataParallel(self.config.model.backbone)
-        
         with open(os.path.join(self.config.model.save_dir, "model_structure.txt"), "w") as f:
             f.write(str(self.config.model.backbone))
         print("model structure saved in " + os.path.join(self.config.model.save_dir, "model_structure.txt"))
-        # self.delete_list.append(f"tmp/{self.config.global_.result_dir}/model_structure.txt")
-
+        # loss function
         if self.config.model.loss == "arcloss":
             self.config.model.loss = loss.ArcLoss(self.config.model.feature_dim, len(self.config.train.dataset.classes), **self.config.model.loss_param)
         elif self.config.model.loss == "cosloss":
@@ -216,18 +203,14 @@ class Config(object):
             self.config.model.loss = loss.SoftmaxLoss(self.config.model.feature_dim, len(self.config.train.dataset.classes), **self.config.model.loss_param)
         else:
             raise RuntimeError(f"Invalid Loss Option {self.config.model.loss}")
-        
         self.config.model.loss.to(self.config.global_.device)
         if self.config.global_.device == "cuda":
             self.config.model.loss = torch.nn.DataParallel(self.config.model.loss)
-        
         print(f"Loss: {self.config.model.loss}")
         print(f"model param {sum([p.numel() for p in self.config.model.backbone.parameters()])/1024/1024:.8f}M margin param {sum([p.numel() for p in self.config.model.loss.parameters()])/1024/1024:.8f}M")
         
-        # print()
+        # optimizer
         self._print_title("optimizer")
-        # print("optimizer "+"-"*15)
-        # print("="*18+f">{'optimizer':^12}<"+"="*18)
         if self.config.train.optimizer == "SGD":
             optimizer = torch.optim.SGD([{'params': self.config.model.backbone.parameters()}, {'params': self.config.model.loss.parameters()}], lr=1e-5, weight_decay=self.config.train.weight_decay, momentum=self.config.train.momentum)
         else:
@@ -235,13 +218,11 @@ class Config(object):
         print(f"optimizer: {optimizer}")
         self.config.train.optimizer = optimizer
 
+        # megaface
         if self.config.megaface.enable:
-
-            # print()
             self._print_title("megaface")
-            # print("megaface "+"-"*15)
-            # print("="*18+f">{'megaface':^12}<"+"="*18)
-            
+
+            # init
             assert os.path.isdir(self.config.megaface.devkit_dir), f"{self.config.megaface.devkit_dir} not exist or is not a directory!"
             assert os.path.isdir(self.config.megaface.megaface_dataset_dir), f"{self.config.megaface.megaface_dataset_dir} not exist or is not a directory!"
             assert os.path.isdir(self.config.megaface.facescrub_dataset_dir), f"{facescrub_dataset_dir} not exist or is not a directory!"
@@ -305,18 +286,13 @@ class Config(object):
                 self.config.megaface.distractor[str(s)] = distractor
                 print(f"distractor dataset scale {s}: {distractor_dataset}")
         
-        # print()
+        # delete
         self._print_title("delete list")
-        # print("deleta list "+"-"*15)
-        # print("="*17+f">{'delete list':^14}<"+"="*17)
         for line in self.delete_list:
             print(line)
             if self.config.global_.auto_clear:
                 os.remove(line)
         print("Remark: The generated files above will be auto cleared if set")
-                
-        
+
         print()
-# config = Config()
-# config.display()
-# config.generate()
+

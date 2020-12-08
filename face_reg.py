@@ -29,64 +29,37 @@ class FaceReg(object):
         '''
             CF is a Config class
         '''
+
         CF.display()
         CF.generate()
-
-        
         config = CF.config
 
         self.device = config.global_.device
-
-        # os.environ['CUDA_VISIBLE_DEVICES'] = config.global_.gpu
-        # print("Use", torch.cuda.device_count(), "GPUs!")
-
-        # if torch.cuda.is_available():
-        #     self.device = "cuda"
-        #     cudnn.benchmark = True
-        #     print("cuda available")
-        # else:
-        #     print("cuda not available")
-        #     self.device = "cpu"
-
-        
-
-
-        # # temporarily use cpu
-        # self.device = "cpu"
 
         # dataset
         self.batch_size = config.train.batch_size
         self.test_batch_size = config.test.batch_size
         self.train_data_loader = config.train.loader
-        # TODO: ADD Test Dataset Support
-
         self.train_transform = config.train.transform
         self.test_transform = config.test.transform
         self.classes = config.train.dataset.classes
         
         # model
         self.model = config.model.backbone
-        # if self.device == "cuda":
-        #     self.model = torch.nn.DataParallel(self.model)
         self.margin_layer = config.model.loss
-        # if self.device == "cuda":
-        #     self.margin_layer = torch.nn.DataParallel(self.margin_layer)
-        self.model_save_path = config.model.save_dir
+        self.model_save_dir = config.model.save_dir
         self.input_size = config.model.input_size
-        # self.loss_fn = config.param['loss']
 
         # train & test
         self.optimizer = config.train.optimizer
         self.train_strategy = config.train.strategy
         self.test_dataset = config.test.dataset
         self.test_loader = config.test.loader
-        # self.test_pair = {}
-        # for name,dataset in config.param['test_pair'].items():
-        #     self.test_pair[name] = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size // 2, shuffle=False, num_workers=0, pin_memory=True)
-        self.name = config.global_.name
-        # self.test_pair = config.param['test_pair']
 
-        # megaface challenge
+        # global
+        self.name = config.global_.name
+
+        # megaface
         self.megaface_enable = config.megaface.enable
         if self.megaface_enable:
             self.result_dir = config.megaface.result_save_dir
@@ -99,7 +72,6 @@ class FaceReg(object):
             for s in self.megaface_test_scale:
                 self.distractor[s] = config.megaface.distractor[str(s)]
 
-        
         self.epoch = 0
         self.best_avg_acc = 0
         self.best_avg_acc_th = 0
@@ -110,9 +82,7 @@ class FaceReg(object):
 
     def _train(self, inputs, labels):
         features = self.model(inputs)
-        # outputs = self.margin_layer(features, labels)
         loss, log = self.margin_layer(features, labels)
-        # (outs, target_cos_in, target_theta_in, target_cos_out)
         loss.backward()
         self.optimizer.step()
         return loss, log
@@ -120,8 +90,6 @@ class FaceReg(object):
     def _test(self, inputs, labels):
         features = self.model(inputs)
         loss, log = self.margin_layer(features, labels)
-        # outputs = self.margin_layer(features, labels)
-        # loss = self.loss_fn(outputs, labels)
         return loss, log
 
     def _predict(self, inputs):
@@ -129,32 +97,33 @@ class FaceReg(object):
         return features
 
     def set_train(self):
+        '''
+            Change the model to train state
+        '''
         self.model.train()
         self.margin_layer.train()
 
     def set_eval(self):
+        '''
+            Change the model to evaluation state
+        '''
         self.model.eval()
         self.margin_layer.eval()
 
     def save(self, save_dir=None):
         '''
-            save model parameters to save path
-
-            override if you need
+            save model parameters to save dir
 
             Args:
-                save_path: path where the model is saved
+                save_dir: dir where the model is saved
         '''
         if save_dir is None:
-            save_dir = self.model_save_path
+            save_dir = self.model_save_dir
 
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
 
         save_path = os.path.join(save_dir, "model.pth")
-
-        # if not os.path.isdir(os.path.dirname(save_path)):
-        #     os.makedirs(os.parth.dirname(save_path))
 
         torch.save({
             "model_state_dict": self.model.state_dict(), 
@@ -174,16 +143,16 @@ class FaceReg(object):
 
             Args:
                 resume_dir: dir where the model is saved, the saved data should be named as "model.pth"
+                resume_layer:
+                    "all": resume all layer
+                    "feature extract": not resume the last margin layer
+                    "log": just resume log
         '''
 
         if resume_dir is None:
-            resume_dir = self.model_save_path
+            resume_dir = self.model_save_dir
 
         resume_path = os.path.join(resume_dir, "model.pth")
-        # # if resume_dir is None:
-
-        #     checkpoint = torch.load(self.model_save_path, map_location=torch.device(self.device))
-        # else:
         checkpoint = torch.load(resume_path, map_location=torch.device(self.device))
 
         if resume_layer == 'feature extract':
@@ -216,6 +185,11 @@ class FaceReg(object):
 
     @count_time("val")
     def val(self, auto_save=False):
+        '''
+            val model
+            Args:
+                auto_save: if true, when current average accuracy is greater than best average accuracy, save current model automatically
+        '''
         self.set_eval()
 
         print("> val <")
@@ -286,6 +260,9 @@ class FaceReg(object):
 
     @count_time("total train strategy")
     def train(self):
+        '''
+            train model, the function will call val() and train_one_epoch()
+        '''
         train_epoch = 0
         for stage in self.train_strategy:
             for name, strategy in stage.items():
@@ -306,11 +283,15 @@ class FaceReg(object):
 
     @count_time("train")
     def train_one_epoch(self, lr=None, log_interval=10):
+        '''
+            train the model for one epoch
+            Args:
+                lr: learning rate
+                log_interval: the train steps between two log data
+        '''
         
         # dont forget to set the model in train mode again！otherwise after one test step the model will remain in eval mode and bn layer will be locked forever, causing a huge drop in accuracy.
-        # self.model.train()
         self.set_train()
-        # print(torch.utils.data.get_worker_info())
         
         if lr is not None:
             self.lr = lr
@@ -362,19 +343,16 @@ class FaceReg(object):
                     total_theta_count[j] += torch.sum((math.pi/theta_interval*j <= target_theta_in) & (math.pi/theta_interval*(1+j) > target_theta_in)).item()
                 # print(f"{i} {total_cos_out}")
 
-                # monitor state
+                # monitoring status
                 if (i+1) % log_interval == 0:
                     iter_per_s = log_interval / (time.time() - start)
                     print(f"\r{i+1}/{len(self.train_data_loader)} -> step {i+1}, loss {total_loss/log_interval:.8f}, acc {total_true / total_num:.4f}, speed {iter_per_s:.2f} iter/s      ", end="")
-                    # print("\rtrain -> step %d, loss %.2f, acc= %.2f%%" % (i+1, total_loss / 10, total_acc*100 / 10), end="")
 
                     log_loss =  total_loss / log_interval
                     log_acc = total_true / total_num
                     log_cos_in = total_cos_in / log_interval
                     log_cos_out = total_cos_out / log_interval
                     log_theta = [i/sum(total_theta_count) for i in total_theta_count]
-
-                    # print(f"{log_cos_in} {log_cos_out} {log_theta}")
 
                     total_loss = 0
                     total_true = 0
@@ -395,7 +373,6 @@ class FaceReg(object):
                 log_interval_last = len(self.train_data_loader) % log_interval
                 iter_per_s = log_interval_last / (time.time() - start)
                 print(f"\r{i+1}/{len(self.train_data_loader)} -> step {i+1}, loss {total_loss/log_interval_last:.8f}, acc {total_true / total_num:.4f}, speed {iter_per_s:.2f} iter/s      ", end="")
-                # print("\rtrain -> step %d, loss %.2f, acc= %.2f%%" % (i+1, total_loss / 10, total_acc*100 / 10), end="")
                 log_loss =  total_loss / log_interval_last
                 log_acc = total_true / total_num
                 log_cos_in = total_cos_in / log_interval_last
@@ -433,9 +410,6 @@ class FaceReg(object):
         '''
         if data.get("type", "line") == "line":
             if name in self.history.keys():
-                # print(self.history[name]['data_x'])
-                # print([self.history[name]['data_x'][-1] + data.get('delta_x', 1)])
-                # print(type([self.history[name]['data_x'][-1] + data.get('delta_x', 1)]))
                 self.history[name]['data_x'].append(self.history[name]['data_x'][-1] + data.get('delta_x', 1))
                 self.history[name]['data_y'].append(data['data_y'])
                 self.history[name]['type'] = "line"
@@ -581,6 +555,9 @@ class FaceReg(object):
         return result['cmc'][1][0], roc(1e-6)
 
     def display_log(self):
+        '''
+            send log data to visdom server
+        '''
         # first draw doesn't need replace
 
         for item in self.history.keys():
